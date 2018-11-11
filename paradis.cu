@@ -3,7 +3,7 @@
 
 using namespace std;
 
-#define MAXIMUM_DIGITS 1
+#define MAXIMUM_DIGITS 2
 #define ARRAY_SIZE 10 
 #define NUM_OF_PROCESSORS 4
 #define NUM_OF_BUCKETS 10
@@ -74,13 +74,16 @@ __global__ void prefixSum(int *d_out, int*d_out2, int *d_in, int n)
     
 }
 
-int allBucketsAreEmpty(int *d_gh,int *d_gt, int n)
+int allBucketsAreEmpty(int *h_gh,int *h_gt, int *d_gh,int *d_gt, int numOfBuckets)
 {
+    cudaMemcpy(h_gh, d_gh, numOfBuckets*sizeof(int), cudaMemcpyDeviceToHost);    
+    cudaMemcpy(h_gt, d_gt, numOfBuckets*sizeof(int), cudaMemcpyDeviceToHost);  
 
-    for(int i=0;i<n;i++)
-        if(d_gh[i]!=d_gt[i])
-            return FALSE;
-    
+    for(int i=0;i<numOfBuckets;i++)
+    {
+        if(h_gh[i]!=h_gt[i])
+            return  FALSE;
+    }
     return TRUE;
 }
 
@@ -142,7 +145,7 @@ __global__ void paradisRepair(int i, int *d_arr, int size, int *d_gh, int *d_gt,
 {
     i = blockIdx.x*blockDim.x+threadIdx.x;
 
-    int head, tail, v, k, w;   
+    int head, tail, v, w;   
 
     tail = d_gt[i];
 
@@ -225,17 +228,17 @@ void paradis(int *h_arr, int size, int level, int numOfBuckets, int numOfProcess
     cudaMemcpy((void *)d_arr, (void *)h_arr, size*sizeof(int), cudaMemcpyHostToDevice);
     
     //
-    int *h_histogram, *h_localHistogram, *h_gh, *h_gt, *h_ph, *h_pt, *h_rh, *h_rt;   
+    int *h_histogram, /**h_localHistogram,*/ *h_gh, *h_gt, *h_ph, *h_pt/*, *h_rh, *h_rt*/;   
     h_histogram = (int *)malloc(sizeof(int)*numOfBuckets);
     // h_localHistogram = (int *)malloc(sizeof(int)*numOfBuckets*numOfProcessors);
     h_gh = (int *)malloc(sizeof(int)*numOfBuckets);
     h_gt = (int *)malloc(sizeof(int)*numOfBuckets);
     h_ph = (int *)malloc(sizeof(int)*numOfBuckets*numOfProcessors);
     h_pt = (int *)malloc(sizeof(int)*numOfBuckets*numOfProcessors);
-    h_rh = (int *)malloc(sizeof(int)*numOfProcessors);
-    h_rt = (int *)malloc(sizeof(int)*numOfProcessors);
+    // h_rh = (int *)malloc(sizeof(int)*numOfProcessors);
+    // h_rt = (int *)malloc(sizeof(int)*numOfProcessors);
     
-    int *d_histogram,  *d_localHistogram, *d_gh, *d_gt, *d_ph, *d_pt, *d_rh, *d_rt;
+    int *d_histogram,  *d_localHistogram, *d_gh, *d_gt, *d_ph, *d_pt, *d_rh, *d_rt, *ret;
  
     cudaMalloc((void **)&d_histogram, numOfBuckets*sizeof(int));
     cudaMalloc((void **)&d_localHistogram, numOfBuckets*numOfProcessors*sizeof(int));
@@ -257,24 +260,15 @@ void paradis(int *h_arr, int size, int level, int numOfBuckets, int numOfProcess
     prefixSum<<<1, 1>>>(d_gh, d_gt, d_histogram, numOfBuckets);    
 
     //STEP 3
-    //while(! allBucketsAreEmpty())
+    while(! allBucketsAreEmpty(h_gh, h_gt, d_gh, d_gt, numOfBuckets))
     {
-        // if(allBucketsAreEmpty(d_gh, d_gt, numOfBuckets))
-        //     printf("TRUE\n");
-        // else    
-        //     printf("FALSE\n");
-
         dim3 DimGrid(1, 1, 1);
         dim3 DimBlock(numOfProcessors, numOfBuckets, 1);
         partitionForPermutaion<<<DimGrid, DimBlock>>>(d_ph, d_pt, d_gh, d_gt, numOfBuckets, numOfProcessors);
         paradisPermute<<<1, numOfProcessors>>>(d_arr, size, d_gh, d_gt, d_ph, d_pt, level, numOfBuckets, numOfProcessors);    
     
         paradisRepair<<<1, numOfBuckets>>>(0, d_arr, size, d_gh, d_gt, d_ph, d_pt, level, numOfBuckets, numOfProcessors);
-   
-        // if(allBucketsAreEmpty(d_gh, d_gt, numOfBuckets))
-        //     printf("TRUE\n");
-        // else    
-        //     printf("FALSE\n");
+
     }
     
     cudaMemcpy(h_ph, d_ph, numOfBuckets*numOfProcessors*sizeof(int), cudaMemcpyDeviceToHost);    
