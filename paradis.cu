@@ -37,49 +37,36 @@ __global__ void buildHistogram(int *d_histogram,int *d_localHistogram, int d_num
     }    
 }
 
-__global__ void prefixSum(int *d_out, int *d_in, int n)
+__global__ void prefixSum(int *d_out, int*d_out2, int *d_in, int n)
 {
-    extern __shared__ float temp[];
-    int id = blockIdx.x*blockDim.x+threadIdx.x;
-    int offset = 1;
+    // extern __shared__ float temp[]; 
+    // int id = threadIdx.x;
+    // int pout = 0, pin = 1;
+    
+    // temp[pout*n + id] = (id > 0) ? d_in[id-1] : 0;
+    // __syncthreads();
+    
+    // for (int offset=1; offset<n; offset*=2)
+    // {
+    //     pout = 1 - pout; 
+    //     pin = 1 - pout;
+    //     if (id >= offset)
+    //         temp[pout*n+id] += temp[pin*n+id - offset];
+    //     else
+    //         temp[pout*n+id] = temp[pin*n+id];
+    //     __syncthreads();
+    // }
 
-    temp[2*id] = d_in[2*id]; 
-    temp[2*id+1] = d_in[2*id+1];
+    // d_out[id] = temp[pout*n+id];
 
-    for (int d=n>>1; d>0; d >>= 1)                   
-    { 
-        __syncthreads();
-        if (id < d)
-        {
-            int ai = offset*(2*id+1)-1;
-            int bi = offset*(2*id+2)-1;
-            temp[bi] += temp[ai];
-        }
-        offset *= 2;
-    }
-    if (id == 0) 
-    { 
-        temp[n-1] = 0; 
+    d_out[0] = 0;
+    d_out2[0] = d_in[0];
+    for(int i=1;i<n;i++)
+    {
+        d_out[i] = d_out[i-1] + d_in[i-1];
+        d_out2[i] = d_out2[i-1] + d_in[i];
     }
     
-    for (int d=1; d<n; d*= 2) 
-    {
-        offset >>= 1;
-        __syncthreads();
-        if (id < d)                     
-        {
-            int ai = offset*(2*id+1)-1;
-            int bi = offset*(2*id+2)-1;
-         
-           
-            float t = temp[ai];
-            temp[ai] = temp[bi];
-            temp[bi] += t; 
-        }
-    }
-    __syncthreads();
-    d_out[2*id] = temp[2*id];
-    d_out[2*id+1] = temp[2*id+1]; 
 }
 
 void paradis(int *h_arr, int size, int level, int numOfBuckets, int numOfProcessors)
@@ -91,10 +78,11 @@ void paradis(int *h_arr, int size, int level, int numOfBuckets, int numOfProcess
     cudaMemcpy((void *)d_arr, (void *)h_arr, size*sizeof(int), cudaMemcpyHostToDevice);
     
     //
-    int *h_histogram, *h_localHistogram, *h_gh;   
+    int *h_histogram, *h_localHistogram, *h_gh, *h_gt;   
     h_histogram = (int *)malloc(sizeof(int)*numOfBuckets);
     // h_localHistogram = (int *)malloc(sizeof(int)*numOfBuckets*numOfProcessors);
     h_gh = (int *)malloc(sizeof(int)*numOfBuckets);
+    h_gt = (int *)malloc(sizeof(int)*numOfBuckets);
 
     int *d_histogram,  *d_localHistogram, *d_gh, *d_gt;
  
@@ -109,18 +97,19 @@ void paradis(int *h_arr, int size, int level, int numOfBuckets, int numOfProcess
     buildLocalHistogram<<<1, numOfProcessors>>>(d_localHistogram, d_arr, size, level, numOfBuckets, numOfProcessors);
     buildHistogram<<<1, numOfBuckets>>>(d_histogram, d_localHistogram, numOfBuckets, numOfProcessors);
 
-    prefixSum<<1, numOfBuckets>>(d_gt, d_histogram, numOfBuckets);    
-
+    prefixSum<<<1, 1>>>(d_gh, d_gt, d_histogram, numOfBuckets);    
 
     cudaMemcpy(h_gh, d_gh, numOfBuckets*sizeof(int), cudaMemcpyDeviceToHost);    
+    cudaMemcpy(h_gt, d_gt, numOfBuckets*sizeof(int), cudaMemcpyDeviceToHost);    
+
     // cudaMemcpy(h_localHistogram, d_localHistogram, numOfBuckets*numOfProcessors*sizeof(int), cudaMemcpyDeviceToHost);    
     cudaMemcpy(h_histogram, d_histogram, numOfBuckets*sizeof(int), cudaMemcpyDeviceToHost); 
 
     for(int i=0;i<numOfBuckets;i++)
     {
-        printf("%d: hist=%d cumu=%d\n", i, h_histogram[i], h_gh[i]);
+        printf("\n%d: hist=%d c1=%d c2=%d", i, h_histogram[i], h_gh[i], h_gt[i]);
     }
-
+    
     // for(int i=0;i<numOfProcessors;i++)
     // {
     //     for(int j=0;j<numOfBuckets;j++)
