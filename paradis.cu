@@ -3,7 +3,7 @@
 
 using namespace std;
 
-#define MAXIMUM_DIGITS 2
+#define MAXIMUM_DIGITS 1
 #define ARRAY_SIZE 10 
 #define NUM_OF_PROCESSORS 4
 #define NUM_OF_BUCKETS 10
@@ -87,7 +87,7 @@ int allBucketsAreEmpty(int *h_gh,int *h_gt, int *d_gh,int *d_gt, int numOfBucket
     return TRUE;
 }
 
-__global__ void partitionForPermutaion(int *d_ph,int *d_pt,int *d_gh,int *d_gt,int numOfBuckets,int numOfProcessors)
+__global__ void partitionForPermutation(int *d_ph,int *d_pt,int *d_gh,int *d_gt,int numOfBuckets,int numOfProcessors)
 {
     int bucket = blockIdx.y*blockDim.y + threadIdx.y;
     int processor = blockIdx.x*blockDim.x + threadIdx.x;
@@ -221,6 +221,9 @@ __global__ void partitionForRepair(int *d_ph, int *d_pt, int *d_rh, int *d_rt, i
 
 void paradis(int *h_arr, int size, int level, int numOfBuckets, int numOfProcessors)
 {
+    printf("--------------------------------------------------------------------------------\n");
+    printf("Calling first=%d size=%d level=%d\n", *h_arr, size, level);
+    printf("--------\n");
     int *d_arr;
     //Allocate memory for array on device
     cudaMalloc((void **)&d_arr, size*sizeof(int));
@@ -238,7 +241,7 @@ void paradis(int *h_arr, int size, int level, int numOfBuckets, int numOfProcess
     // h_rh = (int *)malloc(sizeof(int)*numOfProcessors);
     // h_rt = (int *)malloc(sizeof(int)*numOfProcessors);
     
-    int *d_histogram,  *d_localHistogram, *d_gh, *d_gt, *d_ph, *d_pt, *d_rh, *d_rt, *ret;
+    int *d_histogram,  *d_localHistogram, *d_gh, *d_gt, *d_ph, *d_pt, *d_rh, *d_rt;
  
     cudaMalloc((void **)&d_histogram, numOfBuckets*sizeof(int));
     cudaMalloc((void **)&d_localHistogram, numOfBuckets*numOfProcessors*sizeof(int));
@@ -259,18 +262,96 @@ void paradis(int *h_arr, int size, int level, int numOfBuckets, int numOfProcess
     //STEP 2
     prefixSum<<<1, 1>>>(d_gh, d_gt, d_histogram, numOfBuckets);    
 
+    
+
     //STEP 3
+    int numIter = 0;
     while(! allBucketsAreEmpty(h_gh, h_gt, d_gh, d_gt, numOfBuckets))
     {
+        numIter++;
+        printf("***********************Num Iter = %d**************************\n",numIter);
+
         dim3 DimGrid(1, 1, 1);
         dim3 DimBlock(numOfProcessors, numOfBuckets, 1);
-        partitionForPermutaion<<<DimGrid, DimBlock>>>(d_ph, d_pt, d_gh, d_gt, numOfBuckets, numOfProcessors);
+        partitionForPermutation<<<DimGrid, DimBlock>>>(d_ph, d_pt, d_gh, d_gt, numOfBuckets, numOfProcessors);
+
         paradisPermute<<<1, numOfProcessors>>>(d_arr, size, d_gh, d_gt, d_ph, d_pt, level, numOfBuckets, numOfProcessors);    
+
+        {
+            // TEMP
+            cudaMemcpy(h_ph, d_ph, numOfBuckets*numOfProcessors*sizeof(int), cudaMemcpyDeviceToHost);    
+            cudaMemcpy(h_pt, d_pt, numOfBuckets*numOfProcessors*sizeof(int), cudaMemcpyDeviceToHost);    
     
+            cudaMemcpy(h_gh, d_gh, numOfBuckets*sizeof(int), cudaMemcpyDeviceToHost);    
+            cudaMemcpy(h_gt, d_gt, numOfBuckets*sizeof(int), cudaMemcpyDeviceToHost);    
+    
+            // cudaMemcpy(h_localHistogram, d_localHistogram, numOfBuckets*numOfProcessors*sizeof(int), cudaMemcpyDeviceToHost);    
+            cudaMemcpy(h_histogram, d_histogram, numOfBuckets*sizeof(int), cudaMemcpyDeviceToHost); 
+    
+            printf("\nAfter permute");
+            for(int i=0;i<numOfBuckets;i++)
+            {
+                printf("\n%d: hist=%d c1=%d c2=%d", i, h_histogram[i], h_gh[i], h_gt[i]);
+            }
+            
+            printf("\n");
+            for(int i=0;i<numOfProcessors;i++)
+            {
+                for(int j=0;j<numOfBuckets;j++)
+                {
+                    printf("[%d,%d]\t", *(h_ph + i*numOfBuckets + j), *(h_pt + i*numOfBuckets + j));    
+                }    
+                printf("\n");
+            }
+            cudaMemcpy((void *)h_arr, (void *)d_arr, ARRAY_SIZE*sizeof(int), cudaMemcpyDeviceToHost);
+
+            printf("\nSorted Array after permute at level %d\n:", level);    
+            for(int i=0; i<size; i++)
+            {
+                printf("%d ", h_arr[i]);
+            }
+            //TEMP
+        }
         paradisRepair<<<1, numOfBuckets>>>(0, d_arr, size, d_gh, d_gt, d_ph, d_pt, level, numOfBuckets, numOfProcessors);
 
+        {
+            // TEMP
+            cudaMemcpy(h_ph, d_ph, numOfBuckets*numOfProcessors*sizeof(int), cudaMemcpyDeviceToHost);    
+            cudaMemcpy(h_pt, d_pt, numOfBuckets*numOfProcessors*sizeof(int), cudaMemcpyDeviceToHost);    
+    
+            cudaMemcpy(h_gh, d_gh, numOfBuckets*sizeof(int), cudaMemcpyDeviceToHost);    
+            cudaMemcpy(h_gt, d_gt, numOfBuckets*sizeof(int), cudaMemcpyDeviceToHost);    
+    
+            // cudaMemcpy(h_localHistogram, d_localHistogram, numOfBuckets*numOfProcessors*sizeof(int), cudaMemcpyDeviceToHost);    
+            cudaMemcpy(h_histogram, d_histogram, numOfBuckets*sizeof(int), cudaMemcpyDeviceToHost); 
+    
+            printf("\nAfter repair\n");
+            for(int i=0;i<numOfBuckets;i++)
+            {
+                printf("\n%d: hist=%d c1=%d c2=%d", i, h_histogram[i], h_gh[i], h_gt[i]);
+            }
+            
+            printf("\n");
+            for(int i=0;i<numOfProcessors;i++)
+            {
+                for(int j=0;j<numOfBuckets;j++)
+                {
+                    printf("[%d,%d]\t", *(h_ph + i*numOfBuckets + j), *(h_pt + i*numOfBuckets + j));    
+                }    
+                printf("\n");
+            }
+
+            printf("\nSorted Array after repair at level %d\n:", level);    
+            for(int i=0; i<size; i++)
+            {
+                printf("%d ", h_arr[i]);
+            }
+            //TEMP
+        }
     }
     
+    printf("Num Iter = %d\n",numIter);
+
     cudaMemcpy(h_ph, d_ph, numOfBuckets*numOfProcessors*sizeof(int), cudaMemcpyDeviceToHost);    
     cudaMemcpy(h_pt, d_pt, numOfBuckets*numOfProcessors*sizeof(int), cudaMemcpyDeviceToHost);    
 
@@ -294,10 +375,40 @@ void paradis(int *h_arr, int size, int level, int numOfBuckets, int numOfProcess
         }    
         printf("\n");
     }
-    
+
+    cudaMemcpy((void *)h_arr, (void *)d_arr, ARRAY_SIZE*sizeof(int), cudaMemcpyDeviceToHost);
+
+    printf("\nSorted Array after step 3 at level %d\n:", level);    
+    for(int i=0; i<size; i++)
+    {
+        printf("%d ", h_arr[i]);
+    }
+    printf("--------------------------------------------------------------------------------\n");
+    printf("\n");
+
+    //STEP 4
+    if (level < MAXIMUM_DIGITS - 1)
+    {
+        for(int i=0; i<numOfBuckets; i++)
+        {
+            int index;
+            if(i)
+            {
+                index = h_gt[i-1];
+            }    
+            else
+            {    
+                index = 0;
+            }   
+            size = h_gt[i] - index;    
+
+            if(size)
+                paradis(h_arr + index, size, level+1, NUM_OF_BUCKETS, NUM_OF_PROCESSORS);    
+        }    
+    }
 
     //Copy sorted array from device to host
-    cudaMemcpy((void *)h_arr, (void *)d_arr, ARRAY_SIZE*sizeof(int), cudaMemcpyDeviceToHost);
+    // cudaMemcpy((void *)h_arr, (void *)d_arr, ARRAY_SIZE*sizeof(int), cudaMemcpyDeviceToHost);
 
     cudaFree(d_arr);
 }
@@ -313,7 +424,7 @@ int main()
     //Initialize array elements with random values    
     for(i=0; i<ARRAY_SIZE; i++)
     {
-        h_arr[i] = abs(rand()%((int)pow(10, MAXIMUM_DIGITS)));
+        h_arr[i] = abs(rand()*rand()%((int)pow(10, MAXIMUM_DIGITS)));
         printf("%d ", h_arr[i]);    
     }
 
@@ -321,7 +432,7 @@ int main()
     paradis(h_arr, ARRAY_SIZE, 0, NUM_OF_BUCKETS, NUM_OF_PROCESSORS);
 
     //Print the sorted array
-    printf("\nSorted Array :\n");    
+    printf("\n***********Sorted Array*********** :\n");    
     for(i=0; i<ARRAY_SIZE; i++)
     {
         printf("%d ", h_arr[i]);
