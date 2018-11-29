@@ -3,7 +3,7 @@
 
 using namespace std;
 
-#define MAXIMUM_DIGITS 1
+#define MAXIMUM_DIGITS 10
 #define ARRAY_SIZE 10 
 #define NUM_OF_PROCESSORS 2
 #define NUM_OF_BUCKETS 10
@@ -336,38 +336,57 @@ void paradis(int *h_arr, int size, int numOfBuckets, int numOfProcessors)
     cudaMemcpy((void *)d_arr, (void *)h_arr, size*sizeof(int), cudaMemcpyHostToDevice);
     
     //printf("----------\nCall paradisUtil: firstIndex=%d, size=%d, level=%d\n", 0, size, 0);
-    paradisUtil(d_arr, size, 0, NUM_OF_BUCKETS, NUM_OF_PROCESSORS);   
+    paradisUtil(d_arr, size, 0, numOfBuckets, numOfProcessors);   
     
     cudaMemcpy((void *)h_arr, (void *)d_arr, size*sizeof(int), cudaMemcpyDeviceToHost);
 }
 
 int main()
 {
+    freopen("out.txt", "w", stdout);
+    freopen("in.txt", "r", stdin);
+
     int *h_arr;
-    int i;
+    int i, size;
+
+    scanf("%d", &size);
 
     //Allocate memory for array on host                
-    h_arr = (int *)malloc(ARRAY_SIZE*sizeof(int));
+    h_arr = (int *)malloc(size*sizeof(int));
 
     //Initialize array elements with random values   
-    printf("[HOST] Input array: ");
-    for(i=0; i<ARRAY_SIZE; i++)
+    // printf("[HOST] Input array: ");
+    for(i=0; i<size; i++)
     {
-        h_arr[i] = abs(rand()*rand()%((int)pow(10, MAXIMUM_DIGITS)));
-        printf("%d ", h_arr[i]);    
+        scanf("%d", h_arr+i);
+        // h_arr[i] = abs(rand()*rand()%((int)pow(10, MAXIMUM_DIGITS)));
+        // printf("%d ", h_arr[i]);    
     }
-    printf("\n\n");
+    // printf("\n\n");
 
     //Call sort function
-    paradis(h_arr, ARRAY_SIZE, NUM_OF_BUCKETS, NUM_OF_PROCESSORS);
+    auto t1 = chrono::steady_clock::now();
+
+    paradis(h_arr, size, NUM_OF_BUCKETS, NUM_OF_PROCESSORS);
+
+    auto t2 = chrono::steady_clock::now();
+    auto time_span = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
+
+    printf("\nTime : %ld ms\n", time_span);
 
     //Print the sorted array
-    printf("\n[HOST] Sorted Array : ");    
-    for(i=0; i<ARRAY_SIZE; i++)
+    // printf("\n[HOST] Sorted Array : ");    
+    for(i=0; i<size; i++)
     {
-        printf("%d ", h_arr[i]);
+        // printf("%d ", h_arr[i]);
+        
+        if(i)
+        {
+            if(h_arr[i] < h_arr[i-1])
+                printf("\nError\n");
+        }
     }
-    printf("\n");
+    // printf("\n");
     //Free memory
     free(h_arr);
 
